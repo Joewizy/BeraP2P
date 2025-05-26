@@ -1,19 +1,13 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.19;
 
-import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
-import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-
 /**
  * @title Dex
  * @author Joseph Gimba
  * @notice A smart contract to enable ERC20 token swaps using HONEY as the settlement token.
  * @dev Designed to integrate with Berachain's RewardVault for POL incentives and liquidity mining.
  */
-contract Dex is Ownable {
-    using SafeERC20 for IERC20;
-
+contract Dex {
     // interface IRewardVault {
     //     function stake(uint256 amount) external;
     //     function notifyRewardAmount(bytes calldata pubkey, uint256 reward) external;
