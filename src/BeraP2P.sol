@@ -44,7 +44,12 @@ contract BeraP2P is Ownable, ReentrancyGuard {
     /*//////////////////////////////////////////////////////////////
                                 ENUMS
     //////////////////////////////////////////////////////////////*/
-    enum EscrowStatus {PENDING, COMPLETED, CANCELLED, DISPUTED}
+    enum EscrowStatus {
+        PENDING,
+        COMPLETED,
+        CANCELLED,
+        DISPUTED
+    }
 
     /*//////////////////////////////////////////////////////////////
                                STRUCTS
@@ -100,9 +105,23 @@ contract BeraP2P is Ownable, ReentrancyGuard {
     //////////////////////////////////////////////////////////////*/
     event UserProfileCreated(address indexed user, string username, uint256 timestamp);
     event UserProfileUpdated(address indexed user, string email, string contact, uint256 timestamp);
-    event OfferCreated(uint256 offerId, address indexed seller, uint256 maxAmount, uint256 minAmount, uint256 pricePerToken, string currencyCode);
+    event OfferCreated(
+        uint256 offerId,
+        address indexed seller,
+        uint256 maxAmount,
+        uint256 minAmount,
+        uint256 pricePerToken,
+        string currencyCode
+    );
     event OfferDeactivated(uint256 offerId, address indexed seller);
-    event EscrowCreated(uint256 escrowId, uint256 offerId, address indexed buyer, address seller, uint256 honeyAmount, uint256 fiatAmount);
+    event EscrowCreated(
+        uint256 escrowId,
+        uint256 offerId,
+        address indexed buyer,
+        address seller,
+        uint256 honeyAmount,
+        uint256 fiatAmount
+    );
     event PaymentConfirmed(uint256 escrowId, address indexed seller, uint256 settlementTime);
     event EscrowCancelled(uint256 escrowId, address indexed buyer);
     event DisputeRaised(uint256 escrowId, address indexed disputant);
@@ -146,11 +165,7 @@ contract BeraP2P is Ownable, ReentrancyGuard {
     /**
      * @notice Creates a user profile required for trading
      */
-    function createUserProfile(
-        string calldata username,
-        string calldata email,
-        string calldata contact
-    ) external {
+    function createUserProfile(string calldata username, string calldata email, string calldata contact) external {
         if (userProfiles[msg.sender].exists) {
             revert BeraP2P__ProfileAlreadyExists();
         }
@@ -176,10 +191,7 @@ contract BeraP2P is Ownable, ReentrancyGuard {
     /**
      * @notice Updates the user profile's contact information
      */
-    function updateUserProfile(
-        string calldata email,
-        string calldata contact
-    ) external profileExists {
+    function updateUserProfile(string calldata email, string calldata contact) external profileExists {
         if (bytes(email).length == 0 || bytes(contact).length == 0) {
             revert BeraP2P__InvalidAmount();
         }
@@ -193,7 +205,7 @@ contract BeraP2P is Ownable, ReentrancyGuard {
     /**
      * @notice A seller deposit funds into the escrow contract
      */
-     function depositToken(address token, uint256 amount) external {
+    function depositToken(address token, uint256 amount) external {
         if (amount == 0) {
             revert BeraP2P__InvalidAmount();
         }
@@ -203,7 +215,7 @@ contract BeraP2P is Ownable, ReentrancyGuard {
         }
 
         honey.safeTransferFrom(msg.sender, address(this), amount);
-     }
+    }
 
     /**
      * @notice Creates a new trading offer
@@ -275,7 +287,12 @@ contract BeraP2P is Ownable, ReentrancyGuard {
     /**
      * @notice Creates an escrow from an existing offer
      */
-    function createEscrow(uint256 offerId, uint256 honeyAmount) external profileExists nonReentrant validActiveOffer(offerId) {
+    function createEscrow(uint256 offerId, uint256 honeyAmount)
+        external
+        profileExists
+        nonReentrant
+        validActiveOffer(offerId)
+    {
         Offer storage offer = offers[offerId];
 
         if (offer.seller == msg.sender) {
