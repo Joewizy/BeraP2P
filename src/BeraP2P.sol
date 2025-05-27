@@ -27,6 +27,8 @@ contract BeraP2P is Ownable, ReentrancyGuard {
     error BeraP2P__OfferNotFound();
     error BeraP2P__OfferInactive();
     error BeraP2P__EscrowNotFound();
+    error BeraP2P__TradeAmountTooLow();
+    error BeraP2P__TradeAmountTooHigh();
     error BeraP2P__CannotTradeWithSelf();
     error BeraP2P__InsufficientBalance();
     error BeraP2P__ActiveEscrowsExist();
@@ -99,6 +101,8 @@ contract BeraP2P is Ownable, ReentrancyGuard {
     mapping(address => UserProfile) private userProfiles;
     mapping(address => uint256[]) private userOffers;
     mapping(address => uint256[]) private userEscrows;
+    mapping(address => uint256) private sellerDeposits;
+    mapping(address => uint256) private totalLocked; 
 
     /*//////////////////////////////////////////////////////////////
                                 EVENTS
@@ -126,6 +130,7 @@ contract BeraP2P is Ownable, ReentrancyGuard {
     event EscrowCancelled(uint256 escrowId, address indexed buyer);
     event DisputeRaised(uint256 escrowId, address indexed disputant);
     event DisputeResolved(uint256 escrowId, address indexed winner, bool favoredBuyer);
+    event WithdrawFunds(address indexed user, uint256 amount);
 
     /*//////////////////////////////////////////////////////////////
                               MODIFIERS
@@ -209,12 +214,12 @@ contract BeraP2P is Ownable, ReentrancyGuard {
         if (amount == 0) {
             revert BeraP2P__InvalidAmount();
         }
-
         if (token == address(0)) {
             revert BeraP2P__InvalidAddress();
         }
 
         honey.safeTransferFrom(msg.sender, address(this), amount);
+        sellerDeposits[msg.sender] += amount;
     }
 
     /**
@@ -239,7 +244,7 @@ contract BeraP2P is Ownable, ReentrancyGuard {
         if (bytes(currencyCode).length == 0 || bytes(paymentMethod).length == 0) {
             revert BeraP2P__InvalidAmount();
         }
-        if (honey.balanceOf(msg.sender) < maxTradeAmount) {
+        if (sellerDeposits[msg.sender] < maxTradeAmount) {
             revert BeraP2P__InsufficientBalance();
         }
 
@@ -294,12 +299,18 @@ contract BeraP2P is Ownable, ReentrancyGuard {
         validActiveOffer(offerId)
     {
         Offer storage offer = offers[offerId];
-
+        // Check if seller has enough unlocked funds for this escrow
+        if (sellerDeposits[offer.seller] - totalLocked[offer.seller] < honeyAmount) {
+            revert BeraP2P__InsufficientBalance();
+        }
         if (offer.seller == msg.sender) {
             revert BeraP2P__CannotTradeWithSelf();
         }
-        if (honeyAmount < offer.minTradeAmount || honeyAmount > offer.maxTradeAmount) {
-            revert BeraP2P__InvalidAmount();
+        if (honeyAmount < offer.minTradeAmount) {
+            revert BeraP2P__TradeAmountTooLow();
+        }
+        if (honeyAmount > offer.maxTradeAmount) {
+            revert BeraP2P__TradeAmountTooHigh();
         }
         if (offer.activeEscrowCount >= MAX_ACTIVE_ESCROWS) {
             revert BeraP2P__InvalidState();
@@ -308,6 +319,7 @@ contract BeraP2P is Ownable, ReentrancyGuard {
         uint256 fiatAmount = (honeyAmount * offer.pricePerToken) / PRICE_PRECISION;
 
         offer.activeEscrowCount++;
+        totalLocked[offer.seller] += honeyAmount; // Lock the funds for this escrow
 
         uint256 escrowId = nextEscrowId++;
         escrows[escrowId] = Escrow({
@@ -345,6 +357,8 @@ contract BeraP2P is Ownable, ReentrancyGuard {
 
         escrow.status = EscrowStatus.COMPLETED;
         offers[escrow.offerId].activeEscrowCount--;
+        sellerDeposits[escrow.seller] -= escrow.honeyAmount; 
+        totalLocked[escrow.seller] -= escrow.honeyAmount; 
 
         UserProfile storage sellerProfile = userProfiles[escrow.seller];
         sellerProfile.completedTrades++;
@@ -373,6 +387,7 @@ contract BeraP2P is Ownable, ReentrancyGuard {
 
         escrow.status = EscrowStatus.CANCELLED;
         offers[escrow.offerId].activeEscrowCount--;
+        totalLocked[escrow.seller] -= escrow.honeyAmount; 
 
         emit EscrowCancelled(escrowId, msg.sender);
     }
@@ -394,26 +409,44 @@ contract BeraP2P is Ownable, ReentrancyGuard {
      * @notice Resolve dispute in favor of buyer or seller
      * @dev Only owner or dispute arbitrator can call this
      */
-    function resolveDispute(uint256 escrowId, bool favorBuyer) external onlyOwner validPendingEscrow(escrowId) {
+    function resolveDispute(uint256 escrowId, bool favorBuyer) external onlyOwner {
         Escrow storage escrow = escrows[escrowId];
-        escrow.status = EscrowStatus.COMPLETED;
+        if (escrow.status != EscrowStatus.DISPUTED) {
+            revert BeraP2P__InvalidState();
+        }
 
+        escrow.status = EscrowStatus.COMPLETED;
         offers[escrow.offerId].activeEscrowCount--;
+        totalLocked[escrow.seller] -= escrow.honeyAmount; 
 
         UserProfile storage buyerProfile = userProfiles[escrow.buyer];
         UserProfile storage sellerProfile = userProfiles[escrow.seller];
 
         if (favorBuyer) {
-            honey.safeTransfer(escrow.buyer, escrow.honeyAmount);
             buyerProfile.completedTrades++;
             sellerProfile.disputedTrades++;
         } else {
-            honey.safeTransfer(escrow.seller, escrow.honeyAmount);
             sellerProfile.completedTrades++;
             buyerProfile.disputedTrades++;
         }
 
         emit DisputeResolved(escrowId, favorBuyer ? escrow.buyer : escrow.seller, favorBuyer);
+    }
+
+    /**
+     * @notice Allows sellers to withdraw unallocated HONEY tokens
+     */
+    function withdrawDeposit(uint256 amount) external nonReentrant {
+        if (amount == 0) {
+            revert BeraP2P__InvalidAmount();
+        }
+        uint256 available = sellerDeposits[msg.sender] - totalLocked[msg.sender];
+        if (amount > available) {
+            revert BeraP2P__InsufficientBalance();
+        }
+        sellerDeposits[msg.sender] -= amount;
+        honey.safeTransfer(msg.sender, amount);
+        emit WithdrawFunds(msg.sender, amount);
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -438,5 +471,9 @@ contract BeraP2P is Ownable, ReentrancyGuard {
 
     function getUserEscrows(address user) external view returns (uint256[] memory) {
         return userEscrows[user];
+    }
+
+    function getSellerDeposit(address seller) external view returns (uint256) {
+        return sellerDeposits[seller];
     }
 }
