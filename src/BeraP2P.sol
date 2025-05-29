@@ -102,7 +102,7 @@ contract BeraP2P is Ownable, ReentrancyGuard {
     mapping(address => uint256[]) private userOffers;
     mapping(address => uint256[]) private userEscrows;
     mapping(address => uint256) private sellerDeposits;
-    mapping(address => uint256) private totalLocked; 
+    mapping(address => uint256) private totalLocked;
 
     /*//////////////////////////////////////////////////////////////
                                 EVENTS
@@ -357,8 +357,8 @@ contract BeraP2P is Ownable, ReentrancyGuard {
 
         escrow.status = EscrowStatus.COMPLETED;
         offers[escrow.offerId].activeEscrowCount--;
-        sellerDeposits[escrow.seller] -= escrow.honeyAmount; 
-        totalLocked[escrow.seller] -= escrow.honeyAmount; 
+        sellerDeposits[escrow.seller] -= escrow.honeyAmount;
+        totalLocked[escrow.seller] -= escrow.honeyAmount;
 
         UserProfile storage sellerProfile = userProfiles[escrow.seller];
         sellerProfile.completedTrades++;
@@ -387,7 +387,7 @@ contract BeraP2P is Ownable, ReentrancyGuard {
 
         escrow.status = EscrowStatus.CANCELLED;
         offers[escrow.offerId].activeEscrowCount--;
-        totalLocked[escrow.seller] -= escrow.honeyAmount; 
+        totalLocked[escrow.seller] -= escrow.honeyAmount;
 
         emit EscrowCancelled(escrowId, msg.sender);
     }
@@ -417,7 +417,7 @@ contract BeraP2P is Ownable, ReentrancyGuard {
 
         escrow.status = EscrowStatus.COMPLETED;
         offers[escrow.offerId].activeEscrowCount--;
-        totalLocked[escrow.seller] -= escrow.honeyAmount; 
+        totalLocked[escrow.seller] -= escrow.honeyAmount;
 
         UserProfile storage buyerProfile = userProfiles[escrow.buyer];
         UserProfile storage sellerProfile = userProfiles[escrow.seller];
@@ -425,6 +425,7 @@ contract BeraP2P is Ownable, ReentrancyGuard {
         if (favorBuyer) {
             buyerProfile.completedTrades++;
             sellerProfile.disputedTrades++;
+            honey.safeTransfer(escrow.buyer, escrow.honeyAmount);
         } else {
             sellerProfile.completedTrades++;
             buyerProfile.disputedTrades++;

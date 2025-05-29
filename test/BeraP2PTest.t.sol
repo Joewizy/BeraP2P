@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.19;
 
-import {Test, console} from "forge-std/Test.sol"; 
+import {Test, console} from "forge-std/Test.sol";
 import {BeraP2P} from "../src/BeraP2P.sol";
 import {Honey} from "../src/mocks/Honey.sol";
 
@@ -57,7 +57,7 @@ contract BeraP2PTest is Test {
         string memory contact2 = "234";
         beraP2P.createUserProfile(username2, email2, contact2);
         beraP2P.createEscrow(1, amount);
-        
+
         _;
     }
 
@@ -99,7 +99,7 @@ contract BeraP2PTest is Test {
         beraP2P.depositToken(address(honey), amount);
 
         assertEq(honey.balanceOf(address(beraP2P)), amount);
-    }  
+    }
 
     function testCreateOffer() external userProfile offerCreated {
         uint256 amount = 1000 * 10 ** 18;
@@ -140,7 +140,7 @@ contract BeraP2PTest is Test {
         beraP2P.createEscrow(1, amount);
 
         BeraP2P.Offer memory offers = beraP2P.getOffer(1);
-        BeraP2P.Escrow memory escrow  = beraP2P.getEscrow(1);
+        BeraP2P.Escrow memory escrow = beraP2P.getEscrow(1);
         uint256 expectedFiatAmount = (offers.pricePerToken * amount) / PRICE_PRECISION;
 
         assertEq(escrow.seller, seller);
@@ -166,7 +166,7 @@ contract BeraP2PTest is Test {
         assertEq(sellerProfile.totalTrades, 1);
         assertEq(expectedBuyerBalance, 1000 * PRICE_PRECISION);
     }
-    
+
     function testRaiseDispute() external userProfile offerCreated escrowCreated {
         beraP2P.raiseDispute(1);
         BeraP2P.Escrow memory escrows = beraP2P.getEscrow(1);
@@ -177,31 +177,102 @@ contract BeraP2PTest is Test {
         beraP2P.raiseDispute(1);
         vm.startPrank(owner);
         bool favorBuyer = false;
-        console.log("Seller balance(honey) before dispute", honey.balanceOf(seller));
-        console.log("Buyer balance(honey) before dispute", honey.balanceOf(buyer));
-        console.log("Bera contract balance(honey) before dispute", honey.balanceOf(address(beraP2P)));
+        uint256 contractBalanceBefore = honey.balanceOf(address(beraP2P));
         beraP2P.resolveDispute(1, favorBuyer);
 
         BeraP2P.Offer memory offers = beraP2P.getOffer(1);
         BeraP2P.Escrow memory escrows = beraP2P.getEscrow(1);
         BeraP2P.UserProfile memory sellerProfile = beraP2P.getUserProfile(seller);
         BeraP2P.UserProfile memory buyerProfile = beraP2P.getUserProfile(buyer);
-        console.log("Seller balance(honey) after disputeResolved", honey.balanceOf(seller));
-        console.log("Buyer balance(honey) after disputeResolved", honey.balanceOf(buyer));
-        console.log("Bera contract balance(honey) before disputeResolved", honey.balanceOf(address(beraP2P)));
-        uint256 amount = 1000 * PRICE_PRECISION;
-        uint256 expectedBuyerBalance = honey.balanceOf(seller) - STARTING_MINT;
+        uint256 contractBalanceAfter = honey.balanceOf(address(beraP2P));
 
         assert(escrows.status == BeraP2P.EscrowStatus.COMPLETED);
         assertEq(offers.activeEscrowCount, 0);
         assertEq(sellerProfile.completedTrades, 1);
         assertEq(sellerProfile.totalTrades, 1);
         assertEq(sellerProfile.disputedTrades, 0);
-        assertEq(expectedBuyerBalance, amount);
+        assertEq(contractBalanceBefore, contractBalanceAfter); // since no funds transferred
         // buyers profile
         assertEq(buyerProfile.completedTrades, 0);
         assertEq(buyerProfile.totalTrades, 1);
         assertEq(buyerProfile.disputedTrades, 1);
+    }
+
+    function testDisputeResolutionInFavorOfBuyer() external userProfile offerCreated escrowCreated {
+        beraP2P.raiseDispute(1);
+        vm.startPrank(owner);
+        bool favorBuyer = true;
+        uint256 contractBalanceBefore = honey.balanceOf(address(beraP2P));
+        uint256 buyerBalanceBefore = honey.balanceOf(buyer);
+        console.log("Contract balance before dispute", contractBalanceBefore / PRICE_PRECISION);
+        console.log("Buyer balance before dispute", buyerBalanceBefore / PRICE_PRECISION);
+        beraP2P.resolveDispute(1, favorBuyer);
+
+        BeraP2P.Offer memory offers = beraP2P.getOffer(1);
+        BeraP2P.Escrow memory escrows = beraP2P.getEscrow(1);
+        BeraP2P.UserProfile memory sellerProfile = beraP2P.getUserProfile(seller);
+        BeraP2P.UserProfile memory buyerProfile = beraP2P.getUserProfile(buyer);
+
+        uint256 escrowAmount = 1000 * PRICE_PRECISION;
+        uint256 buyerBalanceAfter = honey.balanceOf(buyer);
+        uint256 contractBalanceAfter = honey.balanceOf(address(beraP2P));
+        console.log("Contract balance before dispute", contractBalanceAfter / PRICE_PRECISION);
+        console.log("Buyer balance after dispute", buyerBalanceAfter / PRICE_PRECISION);
+
+        assert(escrows.status == BeraP2P.EscrowStatus.COMPLETED);
+        assertEq(offers.activeEscrowCount, 0);
+        assertEq(sellerProfile.completedTrades, 0);
+        assertEq(sellerProfile.totalTrades, 1);
+        assertEq(sellerProfile.disputedTrades, 1);
+        assertEq(contractBalanceAfter, 0); // since funds have been sent to the buyer
+        // buyers profile
+        assertEq(buyerProfile.completedTrades, 1);
+        assertEq(buyerProfile.totalTrades, 1);
+        assertEq(buyerProfile.disputedTrades, 0);
+        assertEq((buyerBalanceBefore + escrowAmount), buyerBalanceAfter);
+    }
+
+    function testWithdrawal() external userProfile {
+        uint256 amount = 1000 * PRICE_PRECISION;
+        honey.approve(address(beraP2P), amount);
+        beraP2P.depositToken(address(honey), amount);
+        beraP2P.withdrawDeposit(amount);
+
+        assertEq(honey.balanceOf(seller), STARTING_MINT);
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                     REVERT TESTS [FAILURE EXPECTED]
+    //////////////////////////////////////////////////////////////*/
+    function testCanCreateUserProfileOnce() external userProfile {
+        string memory username = "Joe";
+        string memory email = "bera@gmail.com";
+        string memory contact = "911";
+        vm.expectRevert(BeraP2P.BeraP2P__ProfileAlreadyExists.selector);
+        beraP2P.createUserProfile(username, email, contact);
+    }
+
+    function testCannotCreateProfileWithoutArg() external {
+        vm.expectRevert(BeraP2P.BeraP2P__InvalidAmount.selector);
+        beraP2P.createUserProfile("", "", "");
+    }
+
+    function testCannotUpdateProfileWithoutArg() external userProfile {
+        vm.expectRevert(BeraP2P.BeraP2P__InvalidAmount.selector);
+        beraP2P.updateUserProfile("", "");
+    }
+
+    function testRevertIfBuyerDeactivateOffer() external userProfile offerCreated {
+        vm.startPrank(buyer);
+        vm.expectRevert(BeraP2P.BeraP2P__Unauthorized.selector);
+        beraP2P.deactivateOffer(1);
+    }
+
+    function testCannotWithdrawLockedTokens() external userProfile offerCreated escrowCreated {
+        uint256 amount = 1000 * PRICE_PRECISION;
+        vm.startPrank(seller);
+        vm.expectRevert(BeraP2P.BeraP2P__InsufficientBalance.selector);
+        beraP2P.withdrawDeposit(amount);
     }
 
     function testCancelEscrow() external userProfile offerCreated escrowCreated {
